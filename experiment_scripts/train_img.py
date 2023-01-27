@@ -47,6 +47,10 @@ if opt.model_type == 'sine' or opt.model_type == 'relu' or opt.model_type == 'ta
     model = modules.SingleBVPNet(type=opt.model_type, mode='mlp', sidelength=image_resolution)
 elif opt.model_type == 'rbf' or opt.model_type == 'nerf':
     model = modules.SingleBVPNet(type='relu', mode=opt.model_type, sidelength=image_resolution)
+elif opt.model_type == 'tcnn-relu':
+    model = modules.SingleTCNNNet(type='relu', mode='mlp', sidelength=image_resolution)
+elif opt.model_type == 'tcnn-sine':
+    model = modules.SingleTCNNNet(type='sine', mode='mlp', sidelength=image_resolution)
 else:
     raise NotImplementedError
 model.cuda()

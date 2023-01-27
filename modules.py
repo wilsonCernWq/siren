@@ -7,6 +7,8 @@ from collections import OrderedDict
 import math
 import torch.nn.functional as F
 
+import tinycudann as tcnn
+import pdb
 
 class BatchLinear(nn.Linear, MetaModule):
     '''A linear meta-layer that can deal with batched weight matrices and biases, as for instance output by a
@@ -164,6 +166,49 @@ class SingleBVPNet(MetaModule):
         coords = model_input['coords'].clone().detach().requires_grad_(True)
         activations = self.net.forward_with_activations(coords)
         return {'model_in': coords, 'model_out': activations.popitem(), 'activations': activations}
+
+
+class SingleTCNNNet(SingleBVPNet):
+    '''A canonical representation network for a BVP.'''
+
+    def __init__(self, out_features=1, type='sine', in_features=2, mode='mlp', hidden_features=256, num_hidden_layers=3, **kwargs):
+        encoding_config = {
+            "otype": "HashGrid",
+            "n_levels": 8,
+            "n_features_per_level": 4,
+            "log2_hashmap_size": 19,
+            "base_resolution": 8,
+            "per_level_scale": 2.0
+        }
+
+        n_encoding_outputs = encoding_config["n_levels"] * encoding_config["n_features_per_level"]
+
+        super().__init__(out_features=out_features, type=type, in_features=n_encoding_outputs, mode=mode, hidden_features=hidden_features, num_hidden_layers=num_hidden_layers, **kwargs)
+
+        self.encoding = tcnn.Encoding(n_input_dims=in_features, encoding_config=encoding_config)
+
+    def forward(self, model_input, params=None):
+        if params is None:
+            params = OrderedDict(self.named_parameters())
+
+        # Enables us to compute gradients w.r.t. coordinates
+        coords_org = model_input['coords'].clone().detach().requires_grad_(True)
+        coords = coords_org
+
+        # various input processing methods for different applications
+        if self.image_downsampling.downsample:
+            coords = self.image_downsampling(coords)
+        if self.mode == 'rbf':
+            coords = self.rbf_layer(coords)
+        elif self.mode == 'nerf':
+            coords = self.positional_encoding(coords)
+        
+        shape = coords.shape
+        encoding = self.encoding(coords.reshape((-1, shape[-1]))).float()
+        encoding = encoding.reshape((shape[0], shape[1], -1))
+
+        output = self.net(encoding, get_subdict(params, 'net'))
+        return {'model_in': coords_org, 'model_out': output}
 
 
 class PINNet(nn.Module):
